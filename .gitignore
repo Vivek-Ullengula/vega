@@ -1,0 +1,48 @@
+# ─── Environment & Secrets ───
+.env
+.env.*
+!.env.example
+.secrets/
+
+# ─── Virtual Environments ───
+.venv/
+venv/
+ENV/
+env/
+
+# ─── Python Artifacts ───
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+wheels/
+*.egg-info/
+.eggs/
+
+# ─── Logs & Databases ───
+*.log
+*.sqlite
+*.sqlite3
+*.db
+
+# ─── Testing & Coverage ───
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# ─── IDEs & Editors ───
+.vscode/
+.idea/
+*.swp
+*.swo
+.project
+.pydevproject
+
+# ─── OS Generated ───
+.DS_Store
+Thumbs.db
+Desktop.ini
