@@ -9,13 +9,29 @@ import os
 import uuid
 from datetime import datetime
 
-API_BASE = os.getenv("API_BASE_URL", "http://localhost:8000/v1")
+# Optional: Import the FastAPI app for unified deployment
+try:
+    from coaction_agent_platform.app.main import app as fastapi_app
+except ImportError:
+    fastapi_app = None
+
+# Unified Deployment: If we are running in the same process, point to localhost or relative path
+API_BASE = os.getenv("API_BASE_URL", "/v1" if fastapi_app else "http://localhost:8000/v1")
 ALLOWED_ROLES = ("agent", "underwriter", "external")
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
 def new_session_id() -> str:
     return str(uuid.uuid4())
+
+
+def get_headers(token: str):
+    """Return headers with both standard and AgentCore-specific custom auth."""
+    auth_val = f"Bearer {token}"
+    return {
+        "Authorization": auth_val,
+        "X-Amzn-Bedrock-AgentCore-Runtime-Custom-Authorization": auth_val
+    }
 
 
 def signup_user(name: str, email: str, password: str, role: str):
@@ -36,6 +52,23 @@ def signup_user(name: str, email: str, password: str, role: str):
         return "Signup successful. Please login."
     except Exception as exc:
         return f"Signup failed: {exc}"
+
+
+def verify_user(email: str, code: str):
+    if not email or not code:
+        return "⚠️ Email and verification code are required."
+    try:
+        r = requests.post(
+            f"{API_BASE}/auth/confirm",
+            json={"email": email.strip(), "confirmation_code": code.strip()},
+            timeout=10,
+        )
+        if r.status_code >= 400:
+            detail = r.json().get("detail", r.text)
+            return f"❌ Verification failed: {detail}"
+        return "✅ Verification successful! You can now switch to the Login tab."
+    except Exception as exc:
+        return f"❌ Verification failed: {exc}"
 
 
 
@@ -92,7 +125,7 @@ def login_user(email: str, password: str):
         try:
             sessions_resp = requests.get(
                 f"{API_BASE}/sessions",
-                headers={"Authorization": f"Bearer {token}"}
+                headers=get_headers(token)
             )
             if sessions_resp.ok:
                 sessions = sessions_resp.json()
@@ -157,7 +190,7 @@ def refresh_dropdown(user_state):
         try:
             resp = requests.get(
                 f"{API_BASE}/sessions",
-                headers={"Authorization": f"Bearer {user_state.get('token')}"}
+                headers=get_headers(user_state.get('token'))
             )
             if resp.ok:
                 sessions = resp.json()
@@ -182,7 +215,7 @@ def load_session(session_id, user_state):
     try:
         resp = requests.get(
             f"{API_BASE}/sessions/{session_id}",
-            headers={"Authorization": f"Bearer {user_state.get('token')}"}
+            headers=get_headers(user_state.get('token'))
         )
         resp.raise_for_status()
         messages = resp.json().get("messages", [])
@@ -208,7 +241,7 @@ def create_kb(name, desc, bucket, prefix, user_state):
                 "s3_bucket": bucket,
                 "s3_prefix": prefix
             },
-            headers={"Authorization": f"Bearer {user_state.get('token', '')}"},
+            headers=get_headers(user_state.get('token', '')),
             timeout=60,
         )
         if not r.ok:
@@ -460,7 +493,7 @@ def respond(message, history, session_id, top_k, user_state):
         r = requests.post(
             f"{API_BASE}/agents/coaction-underwriting/invoke",
             json={"input_text": message, "session_id": session_id or "", "top_k": top_k},
-            headers={"Authorization": f"Bearer {user_state.get('token', '')}"},
+            headers=get_headers(user_state.get('token', '')),
             timeout=120,
         )
         if not r.ok:
@@ -564,6 +597,15 @@ def build():
                 su_role = gr.Dropdown(list(ALLOWED_ROLES), value="agent", label="Role")
                 su_btn = gr.Button("Create account", variant="primary")
                 su_status = gr.Markdown("")
+                
+                # Verification Section (hidden initially)
+                with gr.Column(visible=False) as verify_col:
+                    gr.Markdown("---")
+                    gr.Markdown("#### 📧 Verify your Email")
+                    gr.Markdown("Please enter the code sent to your inbox.")
+                    v_code = gr.Textbox(label="Verification Code", placeholder="123456")
+                    v_btn = gr.Button("Verify & Confirm", variant="primary")
+                    v_status = gr.Markdown("")
 
             with gr.Tab("Login"):
                 li_email = gr.Textbox(label="Email")
@@ -642,7 +684,21 @@ def build():
                 respond, ins, outs
             )
 
-        su_btn.click(signup_user, [su_name, su_email, su_password, su_role], [su_status])
+        su_btn.click(
+            signup_user, 
+            [su_name, su_email, su_password, su_role], 
+            [su_status]
+        ).then(
+            lambda r: gr.update(visible=True) if "successful" in r else gr.update(visible=False),
+            [su_status],
+            [verify_col]
+        )
+        
+        v_btn.click(
+            verify_user,
+            [su_email, v_code],
+            [v_status]
+        )
         
         kb_create_btn.click(
             create_kb,
@@ -668,7 +724,7 @@ def build():
                 try:
                     resp = requests.get(
                         f"{API_BASE}/sessions",
-                        headers={"Authorization": f"Bearer {user_state.get('token')}"}
+                        headers=get_headers(user_state.get('token'))
                     )
                     if resp.ok:
                         sessions = resp.json()
@@ -711,9 +767,21 @@ def build():
 # ─── Launch ──────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    build().launch(
-        server_name="0.0.0.0",
-        server_port=7860,
-        theme=THEME,
-        css=CSS,
-    )
+    ui = build()
+    
+    if fastapi_app:
+        print("🚀 Starting Unified Deployment (UI + API)...")
+        # Mount the UI onto the FastAPI app
+        # This makes the UI available at / and the API at /v1
+        gr.mount_gradio_app(fastapi_app, ui, path="/")
+        
+        import uvicorn
+        uvicorn.run(fastapi_app, host="0.0.0.0", port=8080)
+    else:
+        print("🏃 Starting Standalone UI...")
+        ui.launch(
+            server_name="0.0.0.0",
+            server_port=7860,
+            theme=THEME,
+            css=CSS,
+        )

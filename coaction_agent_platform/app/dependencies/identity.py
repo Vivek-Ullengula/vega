@@ -34,19 +34,20 @@ def get_jwt_verifier() -> CognitoJWTVerifier:
 
 async def get_identity_context(
     authorization: str = Header(None, alias="Authorization"),
+    custom_auth: str = Header(None, alias="X-Amzn-Bedrock-AgentCore-Runtime-Custom-Authorization"),
 ) -> IdentityContext:
-    """Parse and verify a Cognito JWT token from the Authorization header.
+    """Parse and verify a Cognito JWT token from headers.
 
-    Extracts user identity claims and returns a structured IdentityContext.
-    Raises 401 if the token is missing, invalid, or expired.
+    Checks both standard 'Authorization' and AgentCore-specific custom auth headers.
     """
-    if not authorization or not authorization.startswith("Bearer "):
+    token_str = authorization or custom_auth
+    if not token_str or not token_str.startswith("Bearer "):
         raise HTTPException(
             status_code=401,
             detail="Missing or invalid Authorization header. Expected: Bearer <token>",
         )
 
-    token = authorization[7:]  # Strip "Bearer "
+    token = token_str[7:]  # Strip "Bearer "
 
     try:
         verifier = get_jwt_verifier()

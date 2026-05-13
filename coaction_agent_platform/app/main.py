@@ -13,8 +13,11 @@ Wires all layers per HLD:
 import os
 import structlog
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+
+# Domain Models
+from coaction_agent_platform.domain.models import AgentInvocationRequest, IdentityContext
 
 # AWS Adapters
 from coaction_agent_platform.adapters.aws.boto3_factory import Boto3SessionFactory
@@ -51,7 +54,7 @@ from coaction_agent_platform.app.middleware.errors import ErrorHandlerMiddleware
 from coaction_agent_platform.app.routers.auth_router import router as auth_router, init_auth_router
 from coaction_agent_platform.app.routers.session_router import router as session_router, init_session_router
 from coaction_agent_platform.app.routers.kb_router import router as kb_router, init_kb_router
-from coaction_agent_platform.app.routers.agent_router import router as agent_router, init_agent_router
+from coaction_agent_platform.app.routers.agent_router import router as agent_router, init_agent_router, InvokeRequest
 
 logger = structlog.get_logger(__name__)
 
@@ -146,6 +149,9 @@ async def lifespan(app: FastAPI):
     kb_manager._rds_resource_arn = rds_resource_arn
     kb_manager._rds_credentials_secret_arn = rds_credentials_secret_arn
 
+    # Store in app state for root handler access
+    app.state.agent_service = agent_service
+
     # ── Step 9: Wire Routers ──
     init_auth_router(cognito_adapter, dynamodb_adapter)
     init_session_router(dynamodb_adapter)
@@ -200,10 +206,109 @@ def create_app() -> FastAPI:
         """Liveness check."""
         return {"status": "healthy", "service": "coaction-agent-platform"}
 
+    @app.get("/ping")
+    async def ping():
+        """AWS AgentCore health check."""
+        return {"status": "ok"}
+
     @app.get("/ready")
     async def ready():
         """Dependency readiness check."""
         return {"status": "ready", "service": "coaction-agent-platform"}
+
+    @app.post("/invocations")
+    async def invocations_root(request: Request):
+        """
+        Standard AgentCore invocation path.
+        """
+        payload = await request.json()
+        input_text = payload.get("input_text") or payload.get("prompt")
+        if not input_text:
+            return {"status": "error", "answer": "Missing 'input_text' or 'prompt' in payload."}
+            
+        session_id = payload.get("session_id")
+        top_k = payload.get("top_k", 5)
+        
+        # Create domain objects for the service call
+        invocation_request = AgentInvocationRequest(
+            agent_id="coaction-underwriting",
+            input_text=input_text,
+            session_id=session_id
+        )
+        identity = IdentityContext(
+            user_id="agentcore-system",
+            roles=["agent"],
+            channel="agentcore",
+            correlation_id=request.state.correlation_id if hasattr(request.state, "correlation_id") else "agentcore-invoke"
+        )
+        
+        service = request.app.state.agent_service
+        return await service.invoke(invocation_request, identity)
+
+    @app.post("/")
+    async def root_invoke(request: Request):
+        """
+        Root handler for direct Bedrock AgentCore invocations.
+        Maps the root payload to the default underwriting agent.
+        """
+        payload = await request.json()
+        
+        # Extract inputs from common AgentCore/Gradio schemas
+        input_text = payload.get("input_text") or payload.get("prompt")
+        if not input_text:
+            return {"status": "error", "answer": "Missing 'input_text' or 'prompt' in payload."}
+            
+        session_id = payload.get("session_id")
+        top_k = payload.get("top_k", 5)
+        
+        # Create domain objects for the service call
+        invocation_request = AgentInvocationRequest(
+            agent_id="coaction-underwriting",
+            input_text=input_text,
+            session_id=session_id
+        )
+        identity = IdentityContext(
+            user_id="agentcore-system",
+            roles=["agent"],
+            channel="agentcore",
+            correlation_id=request.state.correlation_id if hasattr(request.state, "correlation_id") else "agentcore-root"
+        )
+        
+        # Invoke the default agent service
+        service = request.app.state.agent_service
+        return await service.invoke(invocation_request, identity)
+
+    @app.api_route("/{path_name:path}", methods=["GET", "POST"])
+    async def catch_all(request: Request, path_name: str):
+        """Catch-all for any other paths, useful for debugging AgentCore routing."""
+        logger.info("catch_all_hit", path=path_name, method=request.method)
+        
+        if request.method == "POST":
+            try:
+                payload = await request.json()
+                input_text = payload.get("input_text") or payload.get("prompt")
+                if input_text:
+                    service = request.app.state.agent_service
+                    
+                    # Create domain objects for the service call
+                    invocation_request = AgentInvocationRequest(
+                        agent_id="coaction-underwriting",
+                        input_text=input_text,
+                        session_id=payload.get("session_id")
+                    )
+                    identity = IdentityContext(
+                        user_id="agentcore-system",
+                        roles=["agent"],
+                        channel="agentcore",
+                        correlation_id="agentcore-catchall"
+                    )
+                    
+                    return await service.invoke(invocation_request, identity)
+            except Exception as e:
+                logger.error("catch_all_error", error=str(e))
+                pass
+                
+        return {"status": "error", "message": f"Path /{path_name} not found."}
 
     return app
 

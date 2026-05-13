@@ -1,6 +1,7 @@
 # coaction_agent_platform/services/agent_service.py
 """Orchestration service: load profile → init agent → execute → return response."""
 
+import os
 import uuid
 import structlog
 from typing import Any
@@ -48,25 +49,31 @@ class AgentService:
         if stored and stored.get("profile"):
             profile = ExecutionProfile(**stored["profile"])
         else:
+            # Fallback to environment variables or defaults
+            kb_id = os.getenv("BEDROCK_KB_ID", "2KMBSFAGGS")
+            model_id = os.getenv("BEDROCK_MODEL_ID", "amazon.nova-pro-v1:0")
+            
             # Default profile for the underwriting agent
             profile = ExecutionProfile(
                 agent_id=agent_id,
                 version="1.0",
                 prompt_template_id="underwriting_system_v1",
                 model_profile=ModelProfile(
-                    model_id="amazon.nova-pro-v1:0",
+                    model_id=model_id,
                     temperature=0.0,
                     max_tokens=4096,
                 ),
                 retrieval_profile=RetrievalProfile(
-                    knowledge_base_ids=["BRHUTIPVIC"],  # coaction-binding-authority KB
+                    knowledge_base_ids=[kb_id],
                 ),
                 memory_profile=MemoryProfile(),
             )
             logger.warning(
                 "using_default_profile",
                 agent_id=agent_id,
-                msg="No stored profile found; using defaults.",
+                kb_id=kb_id,
+                model_id=model_id,
+                msg="No stored profile found; using env/defaults.",
             )
 
         self._profiles[agent_id] = profile
