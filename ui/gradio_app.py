@@ -9,14 +9,8 @@ import os
 import uuid
 from datetime import datetime
 
-# Optional: Import the FastAPI app for unified deployment
-try:
-    from coaction_agent_platform.app.main import app as fastapi_app
-except ImportError:
-    fastapi_app = None
-
-# Unified Deployment: If we are running in the same process, point to localhost or relative path
-API_BASE = os.getenv("API_BASE_URL", "/v1" if fastapi_app else "http://localhost:8000/v1")
+# In separated architecture, the UI points to the external Backend API
+API_BASE = os.getenv("API_BASE_URL", "http://localhost:8000/v1")
 ALLOWED_ROLES = ("agent", "underwriter", "external")
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -767,21 +761,11 @@ def build():
 # ─── Launch ──────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    print(f"🏃 Starting Standalone UI (pointing to API: {API_BASE})...")
     ui = build()
-    
-    if fastapi_app:
-        print("🚀 Starting Unified Deployment (UI + API)...")
-        # Mount the UI onto the FastAPI app
-        # This makes the UI available at / and the API at /v1
-        gr.mount_gradio_app(fastapi_app, ui, path="/")
-        
-        import uvicorn
-        uvicorn.run(fastapi_app, host="0.0.0.0", port=8080)
-    else:
-        print("🏃 Starting Standalone UI...")
-        ui.launch(
-            server_name="0.0.0.0",
-            server_port=7860,
-            theme=THEME,
-            css=CSS,
-        )
+    ui.launch(
+        server_name="0.0.0.0",
+        server_port=7860,
+        theme=THEME,
+        css=CSS,
+    )

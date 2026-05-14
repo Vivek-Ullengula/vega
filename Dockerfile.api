@@ -1,0 +1,27 @@
+# project-vega/Dockerfile.api
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy packaging files and install dependencies
+COPY pyproject.toml README.md ./
+COPY coaction_agent_platform/ ./coaction_agent_platform/
+RUN pip install --no-cache-dir .
+
+# Copy the rest of the application
+COPY . .
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# FastAPI runs on port 8000 by default, but we'll expose 8080 for App Runner/ECS
+EXPOSE 8080
+
+# Start the Backend API using uvicorn
+CMD ["uvicorn", "coaction_agent_platform.app.main:app", "--host", "0.0.0.0", "--port", "8080"]

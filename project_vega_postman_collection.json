@@ -1,0 +1,186 @@
+{
+  "info": {
+    "name": "Project Vega API",
+    "description": "API collection for the Project Vega Underwriting Platform",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "vivekullengula77@gmail.com",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "YourPassword123!",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Sign Up",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Vivek\",\n  \"email\": \"vivekullengula77@gmail.com\",\n  \"password\": \"YourPassword123!\",\n  \"role\": \"underwriter\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/signup",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "signup"]
+            }
+          }
+        },
+        {
+          "name": "Confirm Email",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"vivekullengula77@gmail.com\",\n  \"code\": \"123456\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/confirm",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "confirm"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Agent",
+      "item": [
+        {
+          "name": "Invoke Agent",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"input_text\": \"What is Class Code 10040\",\n  \"session_id\": \"test-session-1\",\n  \"top_k\": 5\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/agents/{{agent_id}}/invoke",
+              "host": ["{{base_url}}"],
+              "path": ["agents", "{{agent_id}}", "invoke"]
+            }
+          }
+        },
+        {
+          "name": "Agent Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/agents/{{agent_id}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["agents", "{{agent_id}}", "health"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "System",
+      "item": [
+        {
+          "name": "Ping",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/ping",
+              "host": ["{{base_url}}"],
+              "path": ["ping"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [""]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [""]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://18.205.188.44:8080/v1",
+      "type": "string"
+    },
+    {
+      "key": "agent_id",
+      "value": "vega_underwriting_agent-grSg5rFgUu",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "PASTE_YOUR_ACCESS_TOKEN_HERE",
+      "type": "string"
+    }
+  ]
+}
