@@ -64,6 +64,13 @@ def configure_retriever(
     logger.info("retriever_configured", kb_ids=knowledge_base_ids, region=region)
 
 
+def reset_retrieval_state() -> None:
+    """Reset the retrieval state for a new turn."""
+    global _last_retrieval_sources
+    _last_retrieval_sources = []
+    logger.debug("retrieval_state_reset")
+
+
 def get_last_retrieval_sources() -> list[dict]:
     """Return source metadata from the most recent search_manuals call."""
     return list(_last_retrieval_sources)
@@ -252,7 +259,7 @@ def search_manuals(query: str) -> str:
     Args:
         query: The search query to find relevant manual content.
     """
-    global _last_retrieval_sources
+    reset_retrieval_state()
 
     if not _bedrock_client or not _knowledge_base_ids:
         _last_retrieval_sources = []

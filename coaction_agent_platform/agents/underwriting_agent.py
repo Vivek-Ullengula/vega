@@ -22,6 +22,7 @@ from coaction_agent_platform.agents.tools.retriever import (
     search_manuals,
     configure_retriever,
     get_last_retrieval_sources,
+    reset_retrieval_state,
 )
 
 logger = structlog.get_logger(__name__)
@@ -121,11 +122,52 @@ class UnderwritingAgent:
         """
         agent = self._get_or_create_agent(role)
 
+        # Reset retrieval state before new turn
+        reset_retrieval_state()
+
         # Restore conversation history if provided
         if history:
-            agent.state.messages = history.copy()
+            try:
+                # Only inject user/assistant messages — Bedrock does NOT allow
+                # 'system' in the messages array (system prompt is set separately
+                # via the Agent constructor's system_prompt parameter).
+                history_msgs = []
+                for msg in history:
+                    role_val = (msg.get("role") or "").strip().lower()
+                    if role_val not in ("user", "assistant"):
+                        continue
+                    content = msg.get("content", "")
+                    if isinstance(content, str):
+                        history_msgs.append({"role": role_val, "content": [{"text": content}]})
+                    elif isinstance(content, list):
+                        history_msgs.append({"role": role_val, "content": content})
 
-        # Execute the agent (synchronous Strands call)
+                if history_msgs:
+                    agent.messages = history_msgs
+                    logger.info("history_restored", count=len(history_msgs))
+            except Exception as e:
+                logger.warning("history_restoration_failed", error=str(e))
+
+        # ── Greeting short-circuit ──────────────────────────────────────
+        # For simple greetings, bypass the agent entirely.  The Strands
+        # Agent.__call__ does NOT accept a `tools` kwarg at call-time
+        # (only at construction), so there is no way to disable tool use
+        # for a single turn.  Instead, return a canned response directly.
+        _GREETINGS = {"hello", "hi", "hey", "good morning", "good afternoon",
+                      "good evening", "howdy", "greetings"}
+        if query.strip().lower() in _GREETINGS:
+            return {
+                "answer": (
+                    "Hello! How can I assist you with your underwriting "
+                    "question today?"
+                ),
+                "citations": [],
+                "follow_up_questions": [],
+                "sources": [],
+                "agent_messages": [],
+            }
+
+        # Execute the agent (non-greeting queries)
         response = agent(query)
         answer = str(response)
 
@@ -167,11 +209,17 @@ class UnderwritingAgent:
 
             answer = clean_answer
 
-        # Get source citations
+        # Get source citations — reset_retrieval_state() at the top of invoke()
+        # already ensures sources are empty for greetings/non-retrieval queries.
         retrieval_sources = get_last_retrieval_sources()
-        all_urls = [s["url"] for s in retrieval_sources if s.get("url") and s["url"] != "N/A"]
-        cited_urls = [url for url in all_urls if url in answer]
-        sources = cited_urls if cited_urls else all_urls[:3]
+        
+        # Only include sources if the LLM explicitly chose to provide a "Sources:" block.
+        # This prevents "ghost" sources from appearing on greetings or scope refusals.
+        if "Sources:" in answer:
+            all_urls = [s["url"] for s in retrieval_sources if s.get("url") and s["url"] != "N/A"]
+            sources = all_urls
+        else:
+            sources = []
 
         # Build citation objects
         citations = []
@@ -190,7 +238,10 @@ class UnderwritingAgent:
                 )
 
         # Get the current agent messages for session persistence
-        current_messages = agent.state.messages if hasattr(agent.state, "messages") else []
+        try:
+            current_messages = agent.messages if hasattr(agent, "messages") else []
+        except Exception:
+            current_messages = []
 
         return {
             "answer": answer,
